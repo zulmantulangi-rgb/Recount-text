@@ -1,0 +1,141 @@
+/**
+ * Backend Google Apps Script (GAS) untuk Media Pembelajaran Interaktif Recount Text
+ * Pengembang: Zulkifli Mantulangi, S.S., Gr. (MTs. Negeri 1 Boalemo)
+ */
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Tangani Inisialisasi Bank Soal (jika dikirim dari frontend)
+    if (data.action === "initDataSoal") {
+      setupSheetDataSoal(ss, data.bermainData, data.berlatihData);
+      return responseJSON({ status: "success", message: "Data soal berhasil disinkronkan." });
+    }
+
+    // 2. Tangani Pengiriman Hasil Belajar Siswa
+    if (data.action === "saveHasil") {
+      saveHasilSiswa(ss, data);
+      return responseJSON({ status: "success", message: "Hasil belajar berhasil disimpan ke database." });
+    }
+
+    return responseJSON({ status: "error", message: "Aksi tidak dikenal." });
+  } catch (err) {
+    return responseJSON({ status: "error", message: err.toString() });
+  }
+}
+
+function doGet(e) {
+  return responseJSON({ status: "online", message: "Backend Google Apps Script MPI Recount Text Aktif." });
+}
+
+function responseJSON(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Membuat & mengisi sheet "Data Soal" jika belum ada
+ */
+function setupSheetDataSoal(ss, bermainData, berlatihData) {
+  let sheet = ss.getSheetByName("Data Soal");
+  if (!sheet) {
+    sheet = ss.insertSheet("Data Soal");
+  } else {
+    sheet.clear(); // Refresh data soal agar selalu up-to-date
+  }
+
+  // Header Data Soal
+  const headers = [
+    "Kategori", "ID / No", "Level / Tipe", "Judul / Label", 
+    "Stimulus Bacaan", "Pertanyaan", "Pilihan Jawaban / Pasangan", "Jawaban Benar"
+  ];
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#047857").setFontColor("#FFFFFF");
+
+  // Format data Bermain
+  if (bermainData && Array.isArray(bermainData)) {
+    bermainData.forEach(item => {
+      let opts = "";
+      if (item.options) opts = item.options.join(" | ");
+      else if (item.pairs) opts = item.pairs.map(p => p.left + " -> " + p.right).join(" | ");
+
+      let ans = item.correct !== undefined ? item.correct : (item.correctOrder ? item.correctOrder.join(" - ") : "-");
+
+      sheet.appendRow([
+        "Menu BERMAIN",
+        item.id,
+        item.type,
+        item.title || "",
+        (item.stimulus || "").trim(),
+        item.q || "",
+        opts,
+        ans
+      ]);
+    });
+  }
+
+  // Format data Berlatih
+  if (berlatihData && Array.isArray(berlatihData)) {
+    berlatihData.forEach(item => {
+      sheet.appendRow([
+        "Menu BERLATIH",
+        item.id,
+        item.levelLabel || `Level ${item.level}`,
+        `Soal ${item.id}`,
+        (item.stimulus || "").trim(),
+        item.q || "",
+        item.options ? item.options.join(" | ") : "",
+        item.correct !== undefined ? `Opsi Indeks [${item.correct}] : ${item.options[item.correct]}` : ""
+      ]);
+    });
+  }
+
+  sheet.autoResizeColumns(1, headers.length);
+}
+
+/**
+ * Menyimpan data pengerjaan siswa ke sheet "Hasil"
+ */
+function saveHasilSiswa(ss, data) {
+  let sheet = ss.getSheetByName("Hasil");
+  if (!sheet) {
+    sheet = ss.insertSheet("Hasil");
+    
+    // Buat Header Dinamis
+    let headers = [
+      "Waktu Pengerjaan (Timestamp)", 
+      "Nama Siswa", 
+      "Kelas", 
+      "Skor Bermain (0-100)", 
+      "Nilai Asesmen (0-100)", 
+      "Predikat",
+      "Skor Level 1",
+      "Skor Level 2",
+      "Skor Level 3 (HOTS)",
+      "Jumlah Jawaban Benar", 
+      "Jumlah Jawaban Salah",
+      "Detail Jawaban Siswa (JSON)"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#065F46").setFontColor("#FFFFFF");
+  }
+
+  const timestamp = new Date().toLocaleString("id-ID", { timeZone: "Asia/Makassar" });
+  
+  sheet.appendRow([
+    timestamp,
+    data.studentName,
+    data.studentClass,
+    data.bermainScore,
+    data.examScore,
+    data.gradeLabel,
+    data.l1Score,
+    data.l2Score,
+    data.l3Score,
+    data.totalCorrect,
+    data.totalWrong,
+    JSON.stringify(data.answersDetail)
+  ]);
+}
